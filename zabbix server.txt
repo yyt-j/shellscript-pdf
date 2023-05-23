@@ -1,0 +1,76 @@
+#! /bin/bash
+
+# CentOS 7.9
+# zabbix-server-mysql 5.0.31
+# mariadb-server 5.5.68
+# httpd 2.4.6
+
+# 已构建本地yum源
+# 防火墙已关闭
+# selinux已关闭
+
+# 基础配置，可修改
+# MySQL root密码
+DB_ROOT_PASS=000000
+# zabbix数据库密码
+DB_ZABBIX_PASS=test
+# 本机IP
+LOCAL_IP=`ip add|grep global|awk -F'[ /]+' '{ print $3 }'|head -n 1` 
+
+# 安装Web容器
+yum install httpd -q -y
+systemctl start httpd
+systemctl enable httpd >/dev/null 2>&1
+echo "Web容器安装完成！"
+# 安装数据库
+yum install mariadb mariadb-server -q -y
+systemctl start mariadb
+systemctl enable mariadb >/dev/null 2>&1
+echo "数据库安装完成！"
+# 安装Zabbix Server和Zabbix Agent
+yum install zabbix-server-mysql zabbix-agent  -q -y --nogpgcheck >/dev/null 2>&1
+# 安装Zabbix前端
+yum install zabbix-web-mysql-scl zabbix-apache-conf-scl -q -y --nogpgcheck >/dev/null 2>&1
+echo "Zabbix Server安装完成！"
+# 修改PHP时区设置
+sed -i "/^;/c php_value[date.timezone] = Asia\/Shanghai" /etc/opt/rh/rh-php72/php-fpm.d/zabbix.conf
+#sed -n "/php_value\[date\.timezone\]/p" /etc/opt/rh/rh-php72/php-fpm.d/zabbix.conf
+# 初始化Zabbix数据库
+yum install expect  -q -y >/dev/null 2>&1
+expect -c "										
+spawn mysql_secure_installation		
+expect \"Enter current password for root (enter for none):\"
+send \"\r\"
+expect \"Set root password?\"
+send \"y\r\"
+expect \"New password:\"
+send \"$DB_ROOT_PASS\r\"
+expect \"Re-enter new password:\"
+send \"$DB_ROOT_PASS\r\"
+expect \"Remove anonymous users?\"
+send \"y\r\"
+expect \"Disallow root login remotely?\"
+send \"n\r\"
+expect \"Remove test database and access to it?\"
+send \"y\r\"
+expect \"Reload privilege tables now?\"
+send \"y\r\"
+expect eof
+" &>/dev/null
+mysql -uroot -p$DB_ROOT_PASS -e 'create database zabbix character set utf8 collate utf8_bin;'
+mysql -uroot -p$DB_ROOT_PASS -e "create user zabbix@localhost identified by '$DB_ZABBIX_PASS';"
+mysql -uroot -p$DB_ROOT_PASS -e 'grant all privileges on zabbix.* to zabbix@localhost;'
+mysql -uroot -p$DB_ROOT_PASS -e 'flush privileges;'
+# 导入数据
+zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -uzabbix -p$DB_ZABBIX_PASS zabbix
+# 修改Zabbix Server数据库配置
+sed -i "s/# DBPassword=/DBPassword=$DB_ZABBIX_PASS/" /etc/zabbix/zabbix_server.conf
+#sed -n '/DBPassword=/p' /etc/zabbix/zabbix_server.conf
+echo "Zabbix Server初始化完成！"
+# 启动Zabbix服务
+systemctl restart zabbix-server zabbix-agent httpd rh-php72-php-fpm
+systemctl enable zabbix-server zabbix-agent httpd rh-php72-php-fpm >/dev/null 2>&1
+# 测试Web UI
+ZABBIX_SERVER_URL="http://$LOCAL_IP/zabbix"
+curl $ZABBIX_SERVER_URL  >/dev/null 2>&1
+echo "请访问 $ZABBIX_SERVER_URL 完成配置"
