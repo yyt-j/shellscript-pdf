@@ -1,0 +1,32 @@
+#! /bin/bash
+
+# CentOS 7.9
+# zabbix-agent 5.0.31
+
+# 已构建本地yum源
+# 防火墙已关闭
+# selinux已关闭
+
+# 基础配置，可修改
+# Zabbix Server IP
+ZABBIX_SERVER=192.168.149.4
+# 本地IP
+LOCAL_IP=`ip add|grep global|awk -F'[ /]+' '{ print $3 }'|head -n 1` 
+
+# 安装zabbix-agent
+yum install zabbix-agent -q -y
+
+# 修改Zabbix Server数据库配置
+sed -i "s/Server=127.0.0.1/Server=$ZABBIX_SERVER/" /etc/zabbix/zabbix_agentd.conf
+sed -n '/Server=/p' /etc/zabbix/zabbix_agentd.conf
+# 修改Zabbix Server数据库配置
+sed -i "s/ServerActive=127.0.0.1/ServerActive=$ZABBIX_SERVER/" /etc/zabbix/zabbix_agentd.conf
+sed -n '/ServerActive=/p' /etc/zabbix/zabbix_agentd.conf
+# 修改Zabbix Server数据库配置
+sed -i "s/Hostname=Zabbix server/Hostname=$LOCAL_IP/" /etc/zabbix/zabbix_agentd.conf
+sed -n '/Hostname=/p' /etc/zabbix/zabbix_agentd.conf
+
+# 启动zabbix-agent服务
+systemctl start zabbix-agent
+systemctl enable zabbix-agent >/dev/null 2>&1
+echo "Zabbix Agent初始化完成！"
